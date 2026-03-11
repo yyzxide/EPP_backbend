@@ -5,22 +5,19 @@ import com.epp.backend.entity.StrategyConfig;
 import com.epp.backend.mapper.StrategyMapper;
 import com.epp.backend.service.StrategyService;
 import com.github.benmanes.caffeine.cache.Cache;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 
 @Service
+@RequiredArgsConstructor
 public class StrategyServiceImpl implements StrategyService {
 
-    @Resource
-    private Cache<String, String> strategyCache;
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
-    @Resource
-    private StrategyMapper strategyMapper;
+    private final Cache<String, String> strategyCache;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final StrategyMapper strategyMapper;
 
     @Override
     public String getStrategy(String strategyId) {
