@@ -58,31 +58,35 @@ public class DeviceServiceImpl extends ServiceImpl<DeviceMapper, DeviceInfo> imp
     }
 
     @Override
-    public String getDeviceStatus(String deviceId) {
+    public DeviceInfo getDeviceStatus(String deviceId) {
         String key = REDIS_DEVICE_ONLINE_KEY + deviceId;
-        
-        // 1. 检查 Redis (第一级缓存)
-        Boolean isOnline = redisTemplate.hasKey(key);
-        if (Boolean.TRUE.equals(isOnline)) {
-            return "Online (From Redis)";
-        }
 
-        // 2. 检查数据库 (第二级存储)
+        // 1. 检查 Redis (第一级缓存): Redis 有记录说明设备在线
+        Boolean isOnline = redisTemplate.hasKey(key);
+
+        // 2. 查数据库获取完整设备信息
         DeviceInfo device = this.getOne(new LambdaQueryWrapper<DeviceInfo>()
                 .eq(DeviceInfo::getDeviceId, deviceId));
-        
+
         if (device == null) {
-            return "Unknown Device";
+            // 设备不存在, 抛异常由 GlobalExceptionHandler 统一处理
+            throw new RuntimeException("设备不存在: " + deviceId);
         }
 
-        // 3. 补偿逻辑: 5 分钟内有心跳则补回 Redis
-        if (device.getLastHeartbeatTime() != null && 
-            device.getLastHeartbeatTime().isAfter(LocalDateTime.now().minusMinutes(5))) {
-            
+        // 3. 根据 Redis 状态 + 最后心跳时间综合判断在线状态
+        if (Boolean.TRUE.equals(isOnline)) {
+            // Redis 有记录: 在线
+            device.setStatus(1);
+        } else if (device.getLastHeartbeatTime() != null &&
+                   device.getLastHeartbeatTime().isAfter(LocalDateTime.now().minusMinutes(5))) {
+            // Redis 无记录但 5 分钟内有心跳: 补偿写回 Redis, 视为在线
             redisTemplate.opsForValue().set(key, "1", 90, TimeUnit.SECONDS);
-            return "Online (From DB & Refreshed Redis)";
+            device.setStatus(1);
+        } else {
+            // 离线
+            device.setStatus(0);
         }
 
-        return "Offline";
+        return device;
     }
 }

@@ -29,6 +29,7 @@ public class DeviceController {
     @GetMapping("/{deviceId}")
     public CommonResult<DeviceInfo> getInfo(@PathVariable String deviceId) {
         // 实际开发中会从缓存或数据库获取
-        return CommonResult.success(null); 
+        DeviceInfo deviceInfo = deviceService.getDeviceStatus(deviceId);
+        return CommonResult.success(deviceInfo);
     }
 }

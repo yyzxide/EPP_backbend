@@ -11,5 +11,5 @@ public interface DeviceService extends IService<DeviceInfo> {
      */
     DeviceInfo registerOrHeartbeat(DeviceInfo deviceInfo);
 
-    String getDeviceStatus(String deviceId);
+    DeviceInfo getDeviceStatus(String deviceId);
 }
