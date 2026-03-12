@@ -6,6 +6,11 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageDecoder;
 
+import io.netty.channel.ChannelHandler;
+import org.springframework.stereotype.Component;
+
+@Component
+@ChannelHandler.Sharable
 public class EppProtocolDecoder extends MessageToMessageDecoder<ByteBuf> {
 
     @Override

@@ -49,23 +49,30 @@ public class StrategyServiceImpl implements StrategyService {
             log.info("L2 Redis 命中, strategyId: {}", strategyId);
             return strategyRedis;
         }
-        // 3. Redis 没命中，再去查 DB
-        LambdaQueryWrapper<StrategyConfig> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(StrategyConfig::getStrategyId,strategyId);
+        // 3. Redis 没命中，再去查 DB (加锁防止击穿)
+        synchronized (strategyId.intern()) {
+            // 二次检查，防止重复查库
+            strategyInCaffeine = strategyCache.getIfPresent(cacheKey);
+            if (strategyInCaffeine != null) {
+                return strategyInCaffeine;
+            }
 
-        StrategyConfig dbResult = strategyMapper.selectOne(queryWrapper);
-        if(dbResult == null)
-        {
-            stringRedisTemplate.opsForValue().set(cacheKey,"EMPTY",Duration.ofMinutes(5));
-            strategyCache.put(cacheKey,"EMPTY");
-            log.warn("策略不存在, strategyId: {}", strategyId);
-            throw new RuntimeException("策略不存在: " + strategyId);
+            LambdaQueryWrapper<StrategyConfig> queryWrapper = new LambdaQueryWrapper<>();
+            queryWrapper.eq(StrategyConfig::getStrategyId, strategyId);
+
+            StrategyConfig dbResult = strategyMapper.selectOne(queryWrapper);
+            if (dbResult == null) {
+                stringRedisTemplate.opsForValue().set(cacheKey, "EMPTY", Duration.ofMinutes(5));
+                strategyCache.put(cacheKey, "EMPTY");
+                log.warn("策略不存在, strategyId: {}", strategyId);
+                throw new RuntimeException("策略不存在: " + strategyId);
+            }
+            String strategyJson = dbResult.getConfigJson();
+            // 4. 把 DB 查到的结果写回 L2 (Redis) 和 L1 (Caffeine)，并返回
+            stringRedisTemplate.opsForValue().set(cacheKey, strategyJson, Duration.ofHours(1));
+            strategyCache.put(cacheKey, strategyJson);
+            log.info("L3 MySQL 命中, strategyId: {}", strategyId);
+            return strategyJson;
         }
-        String strategyJson=dbResult.getConfigJson();
-        // 4. 把 DB 查到的结果写回 L2 (Redis) 和 L1 (Caffeine)，并返回
-        stringRedisTemplate.opsForValue().set(cacheKey,strategyJson,Duration.ofHours(1));
-        strategyCache.put(cacheKey,strategyJson);
-        log.info("L3 MySQL 命中, strategyId: {}", strategyId);
-        return strategyJson;
     }
 }

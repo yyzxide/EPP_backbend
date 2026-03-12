@@ -8,6 +8,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 
+import io.netty.channel.ChannelHandler;
+import org.springframework.stereotype.Component;
+
+@Component
+@ChannelHandler.Sharable
 public class EppProtocolEncoder extends MessageToMessageEncoder<EppMessage> {
 
     @Override
