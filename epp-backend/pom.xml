@@ -42,6 +42,12 @@
             <version>${mybatis-plus.version}</version>
         </dependency>
 
+        <!-- Kafka -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- Tools -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>

@@ -15,6 +15,23 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PWD:}
       database: 0
+  kafka:
+    bootstrap-servers: ${KAFKA_HOST:localhost}:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: 1
+    consumer:
+      group-id: epp-backend-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+
+epp:
+  kafka:
+    topic:
+      heartbeat: epp.heartbeat
+      seccheck: epp.seccheck
 
 mybatis-plus:
   configuration:
