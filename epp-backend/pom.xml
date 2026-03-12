@@ -48,6 +48,13 @@
             <artifactId>spring-kafka</artifactId>
         </dependency>
 
+        <!-- Netty -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.1.108.Final</version>
+        </dependency>
+
         <!-- Tools -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
