@@ -32,9 +32,6 @@ public class NettyServer implements CommandLineRunner {
             ServerBootstrap bootstrap = new ServerBootstrap();
             
             // 3. 配置 bootstrap：
-            //   - group(bossGroup, workerGroup)
-            //   - channel(NioServerSocketChannel.class)
-            //   - childHandler(nettyServerInitializer)
             bootstrap.group(bossGroup,workerGroup);
             bootstrap.channel(NioServerSocketChannel.class);
             bootstrap.childHandler(nettyServerInitializer);
