@@ -1,5 +1,6 @@
 package com.epp.backend.netty;
 
+import com.epp.backend.config.JwtUtils;
 import com.epp.backend.handler.MessageDispatcher;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
@@ -41,6 +42,7 @@ public class DeviceChannelHandler extends SimpleChannelInboundHandler<EppMessage
     private final MessageDispatcher messageDispatcher;
     private final ChannelManager channelManager;
     private final NettyBusinessThreadPool businessThreadPool;
+    private final JwtUtils jwtUtils;
 
     /**
      * AttributeKey — Netty 给每个 Channel 提供的"附加属性"机制
@@ -48,19 +50,44 @@ public class DeviceChannelHandler extends SimpleChannelInboundHandler<EppMessage
      * 这里我们把 deviceId 绑上去，这样 channelInactive 时就能取回来
      */
     private static final AttributeKey<String> DEVICE_ID_KEY = AttributeKey.valueOf("deviceId");
+    private static final AttributeKey<Boolean> AUTH_KEY = AttributeKey.valueOf("isAuthed");
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, EppMessage msg) throws Exception {
+        // 1. 【安全关卡】检查当前连接是否已经过 JWT 鉴权
+        Boolean isAuthed = ctx.channel().attr(AUTH_KEY).get();
+
+        if (isAuthed == null || !isAuthed) {
+            // 未通过鉴权的连接，强制要求第一条消息必须是 AUTH 类型 (Type=4)
+            if (msg.getType() == 4) {
+                try {
+                    // 验证 Token (body)，非法或过期会抛出异常
+                    String deviceId = jwtUtils.validateAndGetId(msg.getBody());
+
+                    // 验证通过，标记为已授权，并绑定设备身份
+                    ctx.channel().attr(AUTH_KEY).set(true);
+                    ctx.channel().attr(DEVICE_ID_KEY).set(deviceId);
+
+                    // 注册到全局管理器
+                    channelManager.add(deviceId, ctx.channel());
+                    log.info("设备 [{}] 鉴权成功，允许接入", deviceId);
+                    return; // 鉴权包不走后续业务分发
+                } catch (Exception e) {
+                    log.warn("设备鉴权失败，非法 Token，强制断开: {}, addr: {}", msg.getBody(), ctx.channel().remoteAddress());
+                    ctx.close(); 
+                    return;
+                }
+            } else {
+                // 未鉴权却发了业务包，直接判定为非法攻击
+                log.warn("非法尝试：未鉴权即发送业务数据, type: {}, addr: {}", msg.getType(), ctx.channel().remoteAddress());
+                ctx.close();
+                return;
+            }
+        }
+
+        // 2. 已通过鉴权的连接，正常处理业务逻辑
         String deviceId = msg.getDeviceId();
         log.info("收到终端消息, deviceId: {}, type: {}", deviceId, msg.getType());
-
-        // 1. 将 deviceId 绑定到 Channel 的 attr 上（幂等操作，重复设置没关系）
-        //    ⚡ 这步必须在 Netty Worker 线程里同步执行（操作的是当前线程的 Channel，无并发问题）
-        ctx.channel().attr(DEVICE_ID_KEY).set(deviceId);
-
-        // 2. 注册到 ChannelManager（内部用 ConcurrentHashMap，线程安全）
-        //    ⚡ 这步也必须同步执行，保证后续的业务逻辑能通过 channelManager.pushCommand() 找到 Channel
-        channelManager.add(deviceId, ctx.channel());
 
         // 3. 将协议中的 byte 类型转换为业务中的 String 类型
         String typeStr = switch (msg.getType()) {
@@ -71,13 +98,12 @@ public class DeviceChannelHandler extends SimpleChannelInboundHandler<EppMessage
         };
 
         // 4. 【线程池隔离】将耗时的业务分发逻辑异步提交给业务线程池
-        //    Netty Worker 线程到这里就立刻返回了，去处理其他连接的 I/O 事件
-        //    业务线程池里的线程负责执行 Kafka 发送、Redis 查询、数据库操作等耗时操作
         final String finalTypeStr = typeStr;
         businessThreadPool.submit(() ->
                 messageDispatcher.dispatch(finalTypeStr, deviceId, msg.getBody())
         );
     }
+
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {

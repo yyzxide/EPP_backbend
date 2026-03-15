@@ -49,4 +49,12 @@ public class ChannelManager {
     public int getOnlineCount() {
         return channelMap.size();
     }
+
+    /**
+     * 获取所有在线设备的 ID 列表
+     * 用于广播指令或批量推送
+     */
+    public java.util.Set<String> getAllOnlineDeviceIds() {
+        return channelMap.keySet();
+    }
 }

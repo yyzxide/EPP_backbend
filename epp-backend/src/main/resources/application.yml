@@ -28,6 +28,9 @@ spring:
       auto-offset-reset: earliest
 
 epp:
+  jwt:
+    secret: epp-360-security-super-secret-key-must-be-at-least-256-bits-long
+    expiration: 86400000 # 24 hours in milliseconds
   kafka:
     topic:
       heartbeat: epp.heartbeat
