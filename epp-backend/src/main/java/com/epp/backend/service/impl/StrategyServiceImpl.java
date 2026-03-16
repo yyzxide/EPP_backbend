@@ -16,6 +16,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -28,6 +29,9 @@ public class StrategyServiceImpl implements StrategyService {
     private final ChannelManager channelManager;
     private final EppMetrics eppMetrics;
     private final StrategyUpdatePublisher strategyUpdatePublisher;
+
+    // 锁池：替代 String.intern()，防止恶意并发查询导致常量池 OOM
+    private final ConcurrentHashMap<String, Object> lockMap = new ConcurrentHashMap<>();
 
     @Override
     public String getStrategy(String strategyId) {
@@ -59,30 +63,37 @@ public class StrategyServiceImpl implements StrategyService {
         }
 
         // 3. Redis 没命中，再去查 DB (加锁防止击穿)
-        synchronized (strategyId.intern()) {
-            // 二次检查，防止重复查库
-            strategyInCaffeine = strategyCache.getIfPresent(cacheKey);
-            if (strategyInCaffeine != null) {
-                return strategyInCaffeine;
-            }
+        // 使用 ConcurrentHashMap 维护锁对象，避免 .intern() 导致常量池内存泄漏
+        Object lock = lockMap.computeIfAbsent(strategyId, k -> new Object());
+        synchronized (lock) {
+            try {
+                // 二次检查，防止重复查库
+                strategyInCaffeine = strategyCache.getIfPresent(cacheKey);
+                if (strategyInCaffeine != null) {
+                    return strategyInCaffeine;
+                }
 
-            LambdaQueryWrapper<StrategyConfig> queryWrapper = new LambdaQueryWrapper<>();
-            queryWrapper.eq(StrategyConfig::getStrategyId, strategyId);
+                LambdaQueryWrapper<StrategyConfig> queryWrapper = new LambdaQueryWrapper<>();
+                queryWrapper.eq(StrategyConfig::getStrategyId, strategyId);
 
-            StrategyConfig dbResult = strategyMapper.selectOne(queryWrapper);
-            if (dbResult == null) {
-                stringRedisTemplate.opsForValue().set(cacheKey, "EMPTY", Duration.ofMinutes(5));
-                strategyCache.put(cacheKey, "EMPTY");
-                log.warn("策略不存在, strategyId: {}", strategyId);
-                throw new RuntimeException("策略不存在: " + strategyId);
+                StrategyConfig dbResult = strategyMapper.selectOne(queryWrapper);
+                if (dbResult == null) {
+                    stringRedisTemplate.opsForValue().set(cacheKey, "EMPTY", Duration.ofMinutes(5));
+                    strategyCache.put(cacheKey, "EMPTY");
+                    log.warn("策略不存在, strategyId: {}", strategyId);
+                    throw new RuntimeException("策略不存在: " + strategyId);
+                }
+                String strategyJson = dbResult.getConfigJson();
+                // 4. 把 DB 查到的结果写回 L2 (Redis) 和 L1 (Caffeine)，并返回
+                stringRedisTemplate.opsForValue().set(cacheKey, strategyJson, Duration.ofHours(1));
+                strategyCache.put(cacheKey, strategyJson);
+                log.info("L3 MySQL 命中, strategyId: {}", strategyId);
+                eppMetrics.recordCacheMiss();  // 【埋点】L3 穿透到 MySQL
+                return strategyJson;
+            } finally {
+                // 查完库（无论成功失败）都要释放锁对象，防止 lockMap 无限膨胀
+                lockMap.remove(strategyId);
             }
-            String strategyJson = dbResult.getConfigJson();
-            // 4. 把 DB 查到的结果写回 L2 (Redis) 和 L1 (Caffeine)，并返回
-            stringRedisTemplate.opsForValue().set(cacheKey, strategyJson, Duration.ofHours(1));
-            strategyCache.put(cacheKey, strategyJson);
-            log.info("L3 MySQL 命中, strategyId: {}", strategyId);
-            eppMetrics.recordCacheMiss();  // 【埋点】L3 穿透到 MySQL
-            return strategyJson;
         }
     }
 
