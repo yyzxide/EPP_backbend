@@ -6,13 +6,17 @@ import com.epp.backend.entity.DeviceInfo;
 import com.epp.backend.mapper.DeviceMapper;
 import com.epp.backend.service.DeviceService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DeviceServiceImpl extends ServiceImpl<DeviceMapper, DeviceInfo> implements DeviceService {
@@ -47,12 +51,24 @@ public class DeviceServiceImpl extends ServiceImpl<DeviceMapper, DeviceInfo> imp
         }
 
         // 2. 在 Redis 中标记在线状态, 设置过期时间为 90 秒 (心跳周期通常为 60s)
-        redisTemplate.opsForValue().set(
-                REDIS_DEVICE_ONLINE_KEY + existing.getDeviceId(),
-                "1",
-                90,
-                TimeUnit.SECONDS
-        );
+        // 【关键】Redis 不参与 Spring 的 @Transactional 事务管理。
+        // 如果 MySQL 事务因异常回滚，Redis 的 SETEX 不会跟着回滚，导致：
+        //   - MySQL 里设备没注册成功，但 Redis 里已经标记为"在线"
+        //   - 这是一个脏数据不一致的 Bug
+        // 解决方案：注册事务提交后的回调，确保只有 MySQL 成功 commit 之后才写 Redis。
+        final String deviceId = existing.getDeviceId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                redisTemplate.opsForValue().set(
+                        REDIS_DEVICE_ONLINE_KEY + deviceId,
+                        "1",
+                        90,
+                        TimeUnit.SECONDS
+                );
+                log.info("MySQL 事务已提交，Redis 在线状态已更新, deviceId: {}", deviceId);
+            }
+        });
 
         return existing;
     }
