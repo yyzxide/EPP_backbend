@@ -2,6 +2,7 @@ package com.epp.backend.netty;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -32,9 +33,20 @@ public class NettyServer implements CommandLineRunner {
             ServerBootstrap bootstrap = new ServerBootstrap();
             
             // 3. 配置 bootstrap：
-            bootstrap.group(bossGroup,workerGroup);
-            bootstrap.channel(NioServerSocketChannel.class);
-            bootstrap.childHandler(nettyServerInitializer);
+            bootstrap.group(bossGroup, workerGroup)
+                     .channel(NioServerSocketChannel.class)
+                     // 【防连接风暴】服务端 TCP 全连接队列大小
+                     // 默认值通常只有 128，几千个 EPP 客户端同时重连时队列溢出会被内核直接丢包
+                     // C++类比: listen(fd, 4096) 的第二个参数 backlog
+                     .option(ChannelOption.SO_BACKLOG, 4096)
+                     // 【低延迟】禁用 Nagle 算法，小包（心跳/策略指令）立即发送，不攒包
+                     // Nagle 算法会把多个小包合并成一个大包再发，适合大文件传输但会增加延迟
+                     .childOption(ChannelOption.TCP_NODELAY, true)
+                     // 【保活兜底】开启 TCP 底层的 KeepAlive 探测
+                     // 应用层已有 IdleStateHandler（60s），TCP KeepAlive 作为最后一道防线，
+                     // 防止网络中间设备（NAT/防火墙）单方面断开连接而两端毫不知情
+                     .childOption(ChannelOption.SO_KEEPALIVE, true)
+                     .childHandler(nettyServerInitializer);
 
             // 4. 绑定端口并同步等待成功
             ChannelFuture future = bootstrap.bind(port).sync();
