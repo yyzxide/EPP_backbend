@@ -28,9 +28,31 @@ public class ChannelManager {
         log.info("设备 {} 已注册 Channel，当前在线设备数: {}", deviceId, channelMap.size());
     }
 
-    public void remove(String deviceId) {
-        channelMap.remove(deviceId);
-        log.info("设备 {} 已移除 Channel，当前在线设备数: {}", deviceId, channelMap.size());
+    /**
+     * 条件删除：只有当 map 里存的 Channel 与传入的 channel 是同一个对象，才真正删除。
+     *
+     * 为什么要这样做？— 防止快速重连场景下的竞态问题：
+     *
+     * 问题时序（旧 remove(String deviceId) 的 Bug）：
+     *   T1: 设备重连 → add(deviceId, newChannel) → map 写入 newChannel → close(oldChannel)
+     *   T2: oldChannel 触发 channelInactive → remove(deviceId) → map.remove(deviceId)
+     *       ← 此时删掉的是 newChannel！设备变成"幽灵状态"：TCP 活着但服务端认为离线
+     *
+     * 修复后时序：
+     *   T2: channelInactive → remove(deviceId, oldChannel)
+     *       → channelMap.remove(deviceId, oldChannel) 原子判断：map 里是 newChannel ≠ oldChannel
+     *       → 条件不满足，什么都不删，newChannel 安然无恙 ✓
+     *
+     * ConcurrentHashMap.remove(key, value) 是原子操作，内部用 CAS 实现，
+     * 相当于 C++ 里的 compare_exchange_strong：只有 map[key] == value 才执行删除。
+     */
+    public void remove(String deviceId, Channel channel) {
+        boolean removed = channelMap.remove(deviceId, channel);
+        if (removed) {
+            log.info("设备 {} Channel 已移除，当前在线设备数: {}", deviceId, channelMap.size());
+        } else {
+            log.info("设备 {} 的旧 Channel 已被新连接覆盖，跳过删除（快速重连保护）", deviceId);
+        }
     }
 
     public void pushCommand(String deviceId, EppMessage msg) {

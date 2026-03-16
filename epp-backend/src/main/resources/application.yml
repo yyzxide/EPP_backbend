@@ -36,6 +36,18 @@ epp:
       heartbeat: epp.heartbeat
       seccheck: epp.seccheck
 
+# Actuator + Prometheus 监控配置
+# 访问 http://localhost:8080/actuator/prometheus 即可拉取指标
+# Grafana 配置 Prometheus 数据源后即可看图
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info,metrics
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true

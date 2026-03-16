@@ -115,7 +115,12 @@ public class DeviceChannelHandler extends SimpleChannelInboundHandler<EppMessage
         // 从 Channel 的 attr 中取回之前绑定的 deviceId
         String deviceId = ctx.channel().attr(DEVICE_ID_KEY).get();
         if (deviceId != null) {
-            channelManager.remove(deviceId);
+            // 【竞态修复】传入 ctx.channel() 做条件删除，防止快速重连时误删新 Channel
+            // 场景：设备断线重连，add(deviceId, newChannel) 已覆盖 map，此时旧 Channel 的
+            // channelInactive 才触发。如果直接 remove(deviceId)，会把新连接从 map 里删掉，
+            // 导致设备变成"幽灵状态"：TCP 活着但服务端认为已离线。
+            // ConcurrentHashMap.remove(key, value) 是原子 CAS：只有 map[deviceId] == ctx.channel() 才删。
+            channelManager.remove(deviceId, ctx.channel());
             log.info("终端断开连接, deviceId: {}, addr: {}", deviceId, ctx.channel().remoteAddress());
         } else {
             log.info("终端断开连接(未注册设备): {}", ctx.channel().remoteAddress());

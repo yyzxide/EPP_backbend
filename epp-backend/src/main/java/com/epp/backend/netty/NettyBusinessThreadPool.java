@@ -86,6 +86,14 @@ public class NettyBusinessThreadPool {
     }
 
     /**
+     * 暴露原始 ThreadPoolExecutor，供 Micrometer Gauge 注册使用
+     * （EppMetrics 需要直接访问 queue.size() 和 activeCount）
+     */
+    public ThreadPoolExecutor getExecutor() {
+        return executor;
+    }
+
+    /**
      * 获取线程池当前状态（可暴露给监控接口）
      */
     public String getStats() {
