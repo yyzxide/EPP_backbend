@@ -13,6 +13,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import com.google.common.util.concurrent.RateLimiter;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * 终端业务处理器
  * C++类比: 相当于 Socket Server 的消息分发回调函数
@@ -43,6 +46,12 @@ public class DeviceChannelHandler extends SimpleChannelInboundHandler<EppMessage
     private final ChannelManager channelManager;
     private final NettyBusinessThreadPool businessThreadPool;
     private final JwtUtils jwtUtils;
+
+    /**
+     * 针对每个 deviceId 维护一个独立的限流器（令牌桶）
+     * C++ 类比：每个连接对象里维护一个上一次发包时间的 timestamp，或者一个漏桶计数器
+     */
+    private final ConcurrentHashMap<String, RateLimiter> rateLimiterMap = new ConcurrentHashMap<>();
 
     /**
      * AttributeKey — Netty 给每个 Channel 提供的"附加属性"机制
@@ -89,6 +98,20 @@ public class DeviceChannelHandler extends SimpleChannelInboundHandler<EppMessage
         String deviceId = msg.getDeviceId();
         log.info("收到终端消息, deviceId: {}, type: {}", deviceId, msg.getType());
 
+        // 【流量治理】单设备限流防御（防止设备中毒发疯，导致网关瘫痪）
+        // 对于心跳包(1)可以稍微放宽，但对于查库/查Redis的策略拉取(3)必须严格限流
+        if (msg.getType() == 3) {
+            // 获取或创建该设备的令牌桶：每秒最多允许 2 次策略拉取请求
+            RateLimiter rateLimiter = rateLimiterMap.computeIfAbsent(deviceId, k -> RateLimiter.create(2.0));
+            
+            // 尝试获取令牌（非阻塞：拿不到就直接 false）
+            if (!rateLimiter.tryAcquire()) {
+                log.warn("🚨 [限流触发] 设备 [{}] 策略拉取频率过高，已丢弃该请求，保护后端资源", deviceId);
+                // 触发限流，直接抛弃这个包，防止压垮后端
+                return;
+            }
+        }
+
         // 3. 将协议中的 byte 类型转换为业务中的 String 类型
         String typeStr = switch (msg.getType()) {
             case 1 -> "HEARTBEAT";
@@ -121,6 +144,10 @@ public class DeviceChannelHandler extends SimpleChannelInboundHandler<EppMessage
             // 导致设备变成"幽灵状态"：TCP 活着但服务端认为已离线。
             // ConcurrentHashMap.remove(key, value) 是原子 CAS：只有 map[deviceId] == ctx.channel() 才删。
             channelManager.remove(deviceId, ctx.channel());
+            
+            // 💡 清理该设备的限流器，防止 rateLimiterMap 内存泄漏
+            rateLimiterMap.remove(deviceId);
+            
             log.info("终端断开连接, deviceId: {}, addr: {}", deviceId, ctx.channel().remoteAddress());
         } else {
             log.info("终端断开连接(未注册设备): {}", ctx.channel().remoteAddress());
