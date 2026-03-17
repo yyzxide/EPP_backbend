@@ -8,6 +8,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
@@ -16,10 +17,11 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class NettyServer implements CommandLineRunner {
 
-    // 端口先写死 8090
-    private final int port = 8090;
+    // 从配置文件读取端口，默认 8090，支持通过环境变量 NETTY_PORT 覆盖
+    @Value("${epp.netty.port:8090}")
+    private int port;
     
-    // 注入我们之后要写的 Channel 初始化器（先声明着，虽然还没写）
+    // 注入 Channel 初始化器
     private final NettyServerInitializer nettyServerInitializer;
 
     @Override
