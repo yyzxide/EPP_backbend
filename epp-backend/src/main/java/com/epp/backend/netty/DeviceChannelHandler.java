@@ -12,6 +12,7 @@ import io.netty.util.AttributeKey;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import com.google.common.util.concurrent.RateLimiter;
 import java.util.concurrent.ConcurrentHashMap;
@@ -95,7 +96,21 @@ public class DeviceChannelHandler extends SimpleChannelInboundHandler<EppMessage
         }
 
         // 2. 已通过鉴权的连接，正常处理业务逻辑
-        String deviceId = msg.getDeviceId();
+        String authedDeviceId = ctx.channel().attr(DEVICE_ID_KEY).get();
+        if (!StringUtils.hasText(authedDeviceId)) {
+            log.warn("连接缺少鉴权身份，强制断开, addr: {}", ctx.channel().remoteAddress());
+            ctx.close();
+            return;
+        }
+
+        if (StringUtils.hasText(msg.getDeviceId()) && !authedDeviceId.equals(msg.getDeviceId())) {
+            log.warn("设备身份不匹配，token deviceId: {}, msg deviceId: {}, addr: {}",
+                    authedDeviceId, msg.getDeviceId(), ctx.channel().remoteAddress());
+            ctx.close();
+            return;
+        }
+
+        String deviceId = authedDeviceId;
         log.info("收到终端消息, deviceId: {}, type: {}", deviceId, msg.getType());
 
         // 【流量治理】单设备限流防御（防止设备中毒发疯，导致网关瘫痪）

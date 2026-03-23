@@ -11,6 +11,8 @@ import com.epp.backend.service.StrategyService;
 
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import com.epp.backend.exception.BadRequestException;
+import org.springframework.util.StringUtils;
 
 @RestController
 @RequestMapping("/api/strategy")
@@ -39,6 +41,9 @@ public class StrategyController {
     public CommonResult<String> updateStrategy(
             @PathVariable String strategyId,
             @RequestBody UpdateStrategyRequest request) {
+        if (request == null || !StringUtils.hasText(request.getConfigJson())) {
+            throw new BadRequestException("configJson 不能为空");
+        }
         strategyService.updateStrategy(strategyId, request.getConfigJson());
         return CommonResult.success("策略已更新并推送给所有在线设备");
     }

@@ -1,5 +1,6 @@
 package com.epp.backend.config;
 
+import com.epp.backend.exception.UnauthorizedException;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
@@ -73,7 +74,7 @@ public class JwtUtils {
             return claims.getSubject();
         } catch (Exception e) {
             // 签名不匹配或过期都会进这里
-            throw new RuntimeException("JWT 验证失败: " + e.getMessage());
+            throw new UnauthorizedException("JWT 验证失败");
         }
     }
 }

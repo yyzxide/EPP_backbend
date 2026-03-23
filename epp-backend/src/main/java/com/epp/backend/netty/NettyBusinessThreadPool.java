@@ -43,9 +43,8 @@ public class NettyBusinessThreadPool {
      * keepAliveTime = 60s:    非核心线程空闲超过 60s 后销毁
      * queue = LinkedBlockingQueue(10000): 任务等待队列，最多积压 1 万个任务
      * threadFactory:          给线程起名字，方便排查 CPU 高占用时的线程 dump
-     * rejectedHandler:        队列满了且线程数到上限时的拒绝策略：
-     *                         CallerRunsPolicy = 让调用方（Netty Worker 线程）自己跑这个任务，
-     *                         相当于降级处理，不直接丢弃。
+     * rejectedHandler:        队列满了且线程数到上限时直接拒绝，
+     *                         由 submit() 统一记录日志并丢弃，避免反向阻塞 Netty I/O 线程。
      */
     private static final int CPU_COUNT = Runtime.getRuntime().availableProcessors();
 
@@ -66,7 +65,7 @@ public class NettyBusinessThreadPool {
                     return t;
                 }
             },
-            new ThreadPoolExecutor.CallerRunsPolicy()
+            new ThreadPoolExecutor.AbortPolicy()
     );
 
     /**
@@ -75,14 +74,19 @@ public class NettyBusinessThreadPool {
      * @param task 要异步执行的业务逻辑（Lambda 表达式传入）
      */
     public void submit(Runnable task) {
-        executor.submit(() -> {
-            try {
-                task.run();
-            } catch (Exception e) {
-                // 业务线程里的异常必须在这里兜住，否则会吞掉异常，线程悄无声息地失败
-                log.error("业务线程池执行任务异常", e);
-            }
-        });
+        try {
+            executor.submit(() -> {
+                try {
+                    task.run();
+                } catch (Exception e) {
+                    // 业务线程里的异常必须在这里兜住，否则会吞掉异常，线程悄无声息地失败
+                    log.error("业务线程池执行任务异常", e);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            log.error("业务线程池已满，任务被拒绝, active: {}, queue: {}",
+                    executor.getActiveCount(), executor.getQueue().size(), e);
+        }
     }
 
     /**

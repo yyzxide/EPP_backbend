@@ -19,4 +19,8 @@ public class CommonResult<T> {
     public static <T> CommonResult<T> failed(String message) {
         return new CommonResult<>(500, message, null);
     }
+
+    public static <T> CommonResult<T> failed(int code, String message) {
+        return new CommonResult<>(code, message, null);
+    }
 }

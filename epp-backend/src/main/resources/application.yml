@@ -31,8 +31,10 @@ epp:
   netty:
     port: ${NETTY_PORT:8090}
   jwt:
-    secret: epp-360-security-super-secret-key-must-be-at-least-256-bits-long
+    secret: ${EPP_JWT_SECRET:change-this-in-production-please-use-a-random-32-byte-secret}
     expiration: 86400000 # 24 hours in milliseconds
+  admin:
+    token: ${EPP_ADMIN_TOKEN:}
   kafka:
     topic:
       heartbeat: epp.heartbeat

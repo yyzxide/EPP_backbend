@@ -3,10 +3,10 @@ package com.epp.backend.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.epp.backend.entity.StrategyConfig;
+import com.epp.backend.exception.BadRequestException;
+import com.epp.backend.exception.ResourceNotFoundException;
 import com.epp.backend.mapper.StrategyMapper;
 import com.epp.backend.monitor.EppMetrics;
-import com.epp.backend.netty.ChannelManager;
-import com.epp.backend.netty.EppMessage;
 import com.epp.backend.pubsub.StrategyUpdatePublisher;
 import com.epp.backend.service.StrategyService;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,7 +27,6 @@ public class StrategyServiceImpl implements StrategyService {
     private final Cache<String, String> strategyCache;
     private final StringRedisTemplate stringRedisTemplate;
     private final StrategyMapper strategyMapper;
-    private final ChannelManager channelManager;
     private final EppMetrics eppMetrics;
     private final StrategyUpdatePublisher strategyUpdatePublisher;
 
@@ -42,7 +42,7 @@ public class StrategyServiceImpl implements StrategyService {
         String strategyInCaffeine = strategyCache.getIfPresent(cacheKey);
         if (strategyInCaffeine != null) {
             if ("EMPTY".equals(strategyInCaffeine)) {
-                throw new RuntimeException("策略不存在：" + strategyId);
+                throw new ResourceNotFoundException("策略不存在：" + strategyId);
             }
             // L1 命中，直接返回内存里的数据
             log.info("L1 Caffeine 命中, strategyId: {}", strategyId);
@@ -54,7 +54,7 @@ public class StrategyServiceImpl implements StrategyService {
         String strategyRedis = stringRedisTemplate.opsForValue().get(cacheKey);
         if (strategyRedis != null) {
             if ("EMPTY".equals(strategyRedis)) {
-                throw new RuntimeException("策略不存在：" + strategyId);
+                throw new ResourceNotFoundException("策略不存在：" + strategyId);
             }
             strategyCache.put(cacheKey, strategyRedis);
             log.info("L2 Redis 命中, strategyId: {}", strategyId);
@@ -81,7 +81,7 @@ public class StrategyServiceImpl implements StrategyService {
                     stringRedisTemplate.opsForValue().set(cacheKey, "EMPTY", Duration.ofMinutes(5));
                     strategyCache.put(cacheKey, "EMPTY");
                     log.warn("策略不存在, strategyId: {}", strategyId);
-                    throw new RuntimeException("策略不存在: " + strategyId);
+                    throw new ResourceNotFoundException("策略不存在: " + strategyId);
                 }
                 String strategyJson = dbResult.getConfigJson();
                 // 4. 把 DB 查到的结果写回 L2 (Redis) 和 L1 (Caffeine)，并返回
@@ -114,7 +114,15 @@ public class StrategyServiceImpl implements StrategyService {
      */
     @Override
     public void updateStrategy(String strategyId, String configJson) {
+        if (!StringUtils.hasText(strategyId)) {
+            throw new BadRequestException("strategyId 不能为空");
+        }
+        if (!StringUtils.hasText(configJson)) {
+            throw new BadRequestException("configJson 不能为空");
+        }
+
         String cacheKey = "strategy:" + strategyId;
+        long version = System.currentTimeMillis();
 
         // 1. 写入 MySQL：用 upsert 语义（有则更新，无则插入）
         StrategyConfig existing = strategyMapper.selectOne(
@@ -125,12 +133,14 @@ public class StrategyServiceImpl implements StrategyService {
             // 更新已有策略
             strategyMapper.update(null, new LambdaUpdateWrapper<StrategyConfig>()
                     .eq(StrategyConfig::getStrategyId, strategyId)
+                    .set(StrategyConfig::getVersion, version)
                     .set(StrategyConfig::getConfigJson, configJson));
             log.info("策略已更新到 MySQL, strategyId: {}", strategyId);
         } else {
             // 插入新策略
             StrategyConfig newConfig = new StrategyConfig();
             newConfig.setStrategyId(strategyId);
+            newConfig.setVersion(version);
             newConfig.setConfigJson(configJson);
             strategyMapper.insert(newConfig);
             log.info("新策略已写入 MySQL, strategyId: {}", strategyId);

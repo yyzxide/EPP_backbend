@@ -12,8 +12,9 @@ public class StrategyConfig {
     @TableId(type =IdType.AUTO)
     private Long id;
     private String strategyId;
-    private String version;
+    private Long version;
     private String configJson;
     private String description;
     private LocalDateTime createTime;
+    private LocalDateTime updateTime;
 }

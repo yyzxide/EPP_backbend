@@ -3,6 +3,7 @@ package com.epp.backend.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.epp.backend.entity.DeviceInfo;
+import com.epp.backend.exception.ResourceNotFoundException;
 import com.epp.backend.mapper.DeviceMapper;
 import com.epp.backend.service.DeviceService;
 import lombok.RequiredArgsConstructor;
@@ -86,7 +87,7 @@ public class DeviceServiceImpl extends ServiceImpl<DeviceMapper, DeviceInfo> imp
 
         if (device == null) {
             // 设备不存在, 抛异常由 GlobalExceptionHandler 统一处理
-            throw new RuntimeException("设备不存在: " + deviceId);
+            throw new ResourceNotFoundException("设备不存在: " + deviceId);
         }
 
         // 3. 根据 Redis 状态 + 最后心跳时间综合判断在线状态
