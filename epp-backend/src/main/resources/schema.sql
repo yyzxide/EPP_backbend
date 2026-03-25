@@ -29,3 +29,15 @@ CREATE TABLE IF NOT EXISTS `strategy_config` (
     INDEX `idx_strategy_id` (`strategy_id`),
     INDEX `idx_version` (`version`)
 ) ENGINE=InnoDB COMMENT='策略配置版本管理';
+
+-- 3. 安全检查记录表: 存储终端上报的安全扫描结果
+CREATE TABLE IF NOT EXISTS `sec_check_record` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+    `device_id` VARCHAR(64) NOT NULL COMMENT '设备HWID',
+    `check_type` VARCHAR(64) COMMENT '检查类型 (VIRUS_SCAN/USB_BLOCK/PROCESS_CHECK等)',
+    `result` VARCHAR(32) COMMENT '检查结果 (CLEAN/THREAT/BLOCKED等)',
+    `detail` VARCHAR(1024) COMMENT '详细信息 (威胁名称、路径等)',
+    `check_time` DATETIME COMMENT '检查时间',
+    INDEX `idx_device_id` (`device_id`),
+    INDEX `idx_check_time` (`check_time`)
+) ENGINE=InnoDB COMMENT='安全检查记录表';
